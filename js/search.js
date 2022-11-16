@@ -1,127 +1,127 @@
-// A local search script with the help of [hexo-generator-search](https://github.com/PaicHyperionDev/hexo-generator-search)
-// Copyright (C) 2015 
-// Joseph Pan <http://github.com/wzpan>
-// Shuhao Mao <http://github.com/maoshuhao>
-// This library is free software; you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as
-// published by the Free Software Foundation; either version 2.1 of the
-// License, or (at your option) any later version.
-// 
-// This library is distributed in the hope that it will be useful, but
-// WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-// Lesser General Public License for more details.
-// 
-// You should have received a copy of the GNU Lesser General Public
-// License along with this library; if not, write to the Free Software
-// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
-// 02110-1301 USA
-// 
-
-var searchFunc = function (path, search_id, content_id) {
-  'use strict';
-  var BTN = "<button type='button' class='local-search-close' id='local-search-close'></button>";
-  $.ajax({
-    url: path,
-    dataType: "xml",
-    success: function (xmlResponse) {
-      // get the contents from search data
-      var datas = $("entry", xmlResponse).map(function () {
-        return {
-          title: $("title", this).text(),
-          content: $("content", this).text(),
-          url: $("url", this).text()
-        };
-      }).get();
-
-      var $input = document.getElementById(search_id);
-      var $resultContent = document.getElementById(content_id);
-
-      $input.addEventListener('input', function () {
-        var str = '<ul class="search-result-list">';
-        var keywords = this.value.trim().toLowerCase().split(/[\s]+/);
-        $resultContent.innerHTML = "";
-        if (this.value.trim().length <= 0) {
-          return;
-        }
-        // perform local searching
-        datas.forEach(function (data) {
-          var isMatch = true;
-          // var content_index = [];
-          if (!data.title || data.title.trim() === '') {
-            data.title = "Untitled";
-          }
-          var data_title = data.title.trim().toLowerCase();
-          var data_content = data.content.trim().replace(/<[^>]+>/g, "").toLowerCase();
-          var data_url = data.url;
-          var index_title = -1;
-          var index_content = -1;
-          var first_occur = -1;
-          // only match artiles with not empty contents
-          if (data_content !== '') {
-            keywords.forEach(function (keyword, i) {
-              index_title = data_title.indexOf(keyword);
-              index_content = data_content.indexOf(keyword);
-
-              if (index_title < 0 && index_content < 0) {
-                isMatch = false;
-              } else {
-                if (index_content < 0) {
-                  index_content = 0;
-                }
-                if (i == 0) {
-                  first_occur = index_content;
-                }
-                // content_index.push({index_content:index_content, keyword_len:keyword_len});
-              }
-            });
-          } else {
-            isMatch = false;
-          }
-          // show search results
-          if (isMatch) {
-            str += "<li><a href='" + data_url + "' class='search-result-title'>" + data_title + "</a>";
-            var content = data.content.trim().replace(/<[^>]+>/g, "");
-            if (first_occur >= 0) {
-              // cut out 100 characters
-              var start = first_occur - 20;
-              var end = first_occur + 80;
-
-              if (start < 0) {
-                start = 0;
-              }
-
-              if (start == 0) {
-                end = 100;
-              }
-
-              if (end > content.length) {
-                end = content.length;
-              }
-
-              var match_content = content.substr(start, end);
-
-              // highlight all keywords
-              keywords.forEach(function (keyword) {
-                var regS = new RegExp(keyword, "gi");
-                match_content = match_content.replace(regS, "<em class=\"search-keyword\">" + keyword + "</em>");
-              });
-
-              str += "<p class=\"search-result\">" + match_content + "...</p>"
-            }
-            str += "</li>";
-          }
-        });
-        str += "</ul>";
-        if (str.indexOf('<li>') === -1) {
-          return $resultContent.innerHTML = BTN + "<div class=\"search-result-empty\"><p><i class=\"fe fe-tired\"></i> 没有找到内容，更换下搜索词试试吧~<p></div>";
-        }
-        $resultContent.innerHTML = BTN + str;
-      });
+$(document).ready(function () {
+    let searchSettings = window.config.Search;
+    let isSearchSettingsValid = searchSettings.applicationID &&
+                                searchSettings.apiKey &&
+                                searchSettings.indexName;
+    let scroll = null;
+    if (!isSearchSettingsValid) {
+        window.console.error('Search settings are invalid.');
+        return;
     }
-  });
-  $(document).on('click', '#local-search-close', function () {
-    $('#local-search-input').val('');
-    $('#local-search-result').html('');
-  });
-};
+
+    let search = instantsearch({
+        appId          : searchSettings.applicationID,
+        apiKey         : searchSettings.apiKey,
+        indexName      : searchSettings.indexName,
+        searchFunction : function (helper) {
+            let searchInput = $('#search-input').find('input');
+
+            if (searchInput.val()) {
+                helper.search();
+            }
+        }
+    });
+
+    // Search Render Function
+    search.on('render', function() {
+        scroll.refresh();
+    });
+
+    // Registering Widgets
+    [
+        instantsearch.widgets.searchBox({
+            container   : '#search-input',
+            placeholder : searchSettings.labels.placeholder
+        }),
+
+        instantsearch.widgets.hits({
+            container   : '#search-hits',
+            hitsPerPage : searchSettings.hits.page || 10,
+            templates   : {
+                item: function (data) {
+                    let link = data.permalink ? data.permalink : ('/' + data.path);
+                    return ('<a href="' + link + '" class="search-hit-link">' + data._highlightResult.title.value + '</a>');
+                },
+                empty: function (data) {
+                    return ('<div id="search-hits-empty" class="search-hits-empty">' + searchSettings.labels.empty.replace(/\$\{query}/, data.query) + '</div>');
+                }
+            },
+            cssClasses: {
+                item: 'search-hit-item'
+            }
+        }),
+
+        instantsearch.widgets.stats({
+            container : '#search-stats',
+            templates : {
+                body: function (data) {
+                    let stats = searchSettings.labels.stats.replace(/\$\{hits}/, data.nbHits).replace(/\$\{time}/, data.processingTimeMS);
+                    return (stats + '<hr/>');
+                }
+            }
+        }),
+
+        instantsearch.widgets.pagination({
+            container: '#search-pagination',
+            scrollTo: '#search-stats',
+            showFirstLast: false,
+            labels: {
+                previous : '<i class="iconfont icon-left"></i>',
+                next     : '<i class="iconfont icon-right"></i>'
+            },
+            cssClasses: {
+                link     : 'page-number',
+                active   : 'current',
+                disabled : 'disabled'
+            }
+        })
+    ].forEach(search.addWidget, search);
+
+    search.start();
+
+    $('body').on('click', '.search', function(e) {
+        e.stopPropagation();
+        // 打开搜索窗口时, 关闭菜单
+        // $('.menu-button-close').click();
+        $('body').append('<div class="search-cover"></div>').css('overflow', 'hidden');
+        // 移动端防止滚动
+        $('.search-cover').on('touchmove', function(event){
+            event.preventDefault;
+        }, false);
+        // 移动端防止滚动-输入框获取焦点时
+        document.body.addEventListener('touchmove', handler, { passive: false });
+        $('.search-window').toggle();
+        $('#search-input').find('input').focus();
+        // 初始化滚动条
+        let height = $('.search-content').outerHeight();
+        $('.search-scroll').css('height', 'calc(100% - ' + height + 'px)');
+        scroll = new IScroll('.search-scroll', {
+            scrollbars: true,
+            mouseWheel: true,
+            fadeScrollbars: true,
+            resizePolling: 60
+        });
+    });
+
+    $('body').on('click', '.search-close-icon', function() {
+        $('.search-window').hide();
+        $('.search-cover').remove();
+        // 移除移动端防止滚动监听-输入框获取焦点时
+        document.body.removeEventListener('touchmove', handler, { passive: false });
+        $('body').css('overflow', 'auto');
+        // 关闭搜索窗口时, 搜索内容清空
+        $('#search-input').find('input').val('');
+        $('#search-stats').empty();
+        $('#search-hits').empty();
+        $('#search-pagination').empty();
+        // 销毁滚动条
+        scroll.destroy();
+        scroll = null;
+    });
+
+});
+
+function handler(event) {
+    event.preventDefault();
+    event.stopPropagation();
+}
